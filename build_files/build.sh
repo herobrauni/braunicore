@@ -2,26 +2,33 @@
 
 set -ouex pipefail
 
-# Copy the contents of system_files/ of the git repo to /
-cp -avf "/ctx/system_files"/. /
+cp -avf /ctx/system_files/. /
 
-### Install packages
+# One package per line. Blank lines and comments are ignored.
+mapfile -t packages < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' /ctx/packages.txt)
+if (( ${#packages[@]} > 0 )); then
+    dnf5 install -y "${packages[@]}"
+fi
 
-# Packages can be installed from any enabled yum repo on the image.
-# RPMfusion repos are available by default in ublue main images
-# List of rpmfusion packages can be found here:
-# https://mirrors.rpmfusion.org/mirrorlist?path=free/fedora/updates/43/x86_64/repoview/index.html&protocol=https&redirect=1
+# Add only our exact repository scope to uCore's policy. Preserve every
+# upstream transport and trust scope verbatim.
+policy_tmp="$(mktemp)"
+jq '.transports.docker["ghcr.io/herobrauni/braunicore"] = [{
+        "type": "sigstoreSigned",
+        "keyPath": "/etc/pki/containers/braunicore.pub",
+        "signedIdentity": {"type": "matchRepository"}
+    }]' /etc/containers/policy.json > "${policy_tmp}"
+install -m 0644 "${policy_tmp}" /etc/containers/policy.json
 
-# this installs a package from fedora repos
-dnf5 install -y tmux
+# Fail the build immediately if our intentionally small contract is broken.
+test -x /usr/bin/fish
+rpm -q fish tmux tailscale podman moby-engine bootc rpm-ostree
+test -S /run/podman/podman.sock || systemctl cat podman.socket >/dev/null
+QUADLET_UNIT_DIRS=/usr/share/containers/systemd \
+    /usr/lib/systemd/system-generators/podman-system-generator --dryrun >/dev/null
 
-# Use a COPR Example:
-#
-# dnf5 -y copr enable ublue-os/staging
-# dnf5 -y install package
-# Disable COPRs so they don't end up enabled on the final image:
-# dnf5 -y copr disable ublue-os/staging
-
-#### Example for enabling a System Unit File
-
-systemctl enable podman.socket
+# Package-manager state is build-time data, not host state. Keep /var and /run
+# clean so bootc lint remains warning-free.
+dnf5 clean all
+rm -rf /run/dnf /var/lib/dnf /var/cache/ldconfig
+ostree container commit

@@ -1,0 +1,27 @@
+[Unit]
+Description=Beszel monitoring agent
+Documentation=https://www.beszel.dev/guide/agent-installation
+ConditionPathExists=/etc/beszel-agent.env
+Requires=podman.socket
+After=podman.socket
+
+[Container]
+ContainerName=beszel-agent
+Image=docker.io/henrygd/beszel-agent:0.18.7@sha256:8874e2c53f9de5e063a6a80d6b617e20fa593ac5dc4eb4c6ce1f912f510f38f8
+Pull=missing
+Network=host
+Environment=LISTEN=45876
+Environment=DATA_DIR=/var/lib/beszel-agent
+EnvironmentFile=/etc/beszel-agent.env
+Volume=/var/lib/beszel-agent:/var/lib/beszel-agent:Z
+Volume=/run/podman/podman.sock:/var/run/docker.sock:ro
+ReadOnly=true
+SecurityLabelDisable=true
+
+[Service]
+Restart=on-failure
+RestartSec=30s
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

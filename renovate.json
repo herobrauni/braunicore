@@ -1,0 +1,50 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "dependencyDashboard": true,
+  "labels": ["dependencies"],
+  "pinDigests": true,
+  "platformAutomerge": true,
+  "rebaseWhen": "behind-base-branch",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["COSIGN_VERSION:\\s*v?(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "sigstore/cosign",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Automerge tested uCore stable digest refreshes",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/ublue-os/ucore-minimal"],
+      "matchUpdateTypes": ["digest"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Automerge Beszel digest and patch updates within 0.18",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["docker.io/henrygd/beszel-agent"],
+      "matchCurrentVersion": "/^0\\.18\\./",
+      "matchUpdateTypes": ["digest", "patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Automerge tested action digest, patch, and minor updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["digest", "patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Major updates always require review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}

@@ -1,4 +1,7 @@
 cosign.key
+cosign.password
+beszel-agent.env
+host.ign
 _build_*
 output
 _build-*/**

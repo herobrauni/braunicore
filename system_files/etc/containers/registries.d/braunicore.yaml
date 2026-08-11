@@ -1,0 +1,3 @@
+docker:
+  ghcr.io/herobrauni/braunicore:
+    use-sigstore-attachments: true

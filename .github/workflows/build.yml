@@ -1,164 +1,196 @@
 ---
-name: Build container image
+name: Build and publish
+
 on:
   pull_request:
-    branches:
-      - main
-  schedule:
-    - cron: '05 10 * * *'  # 10:05am UTC everyday
+    branches: [main]
+  merge_group:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - '**/README.md'
+    branches: [main]
   workflow_dispatch:
 
 env:
-  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
+  IMAGE: ghcr.io/${{ github.repository_owner }}/braunicore
+  COSIGN_VERSION: v3.1.2
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.brand_name}}-${{ inputs.stream_name }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build_push:
-    name: Build and push image
-    runs-on: ubuntu-24.04
-
+  build:
+    name: Build and validate (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
-      id-token: write
 
     steps:
-      # These stage versions are pinned by https://github.com/renovatebot/renovate
+      # Renovate maintains every action commit pin below.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Maximize build space
-        uses: ublue-os/remove-unwanted-software@695eb75bc387dbcd9685a8e72d23439d8686cba6
+        if: matrix.arch == 'amd64'
+        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+
+      - name: Install Podman on the native arm64 runner
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes podman
 
       - name: Install just
-        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 #v4.0.0
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
-      - name: Check Just Syntax
-        shell: bash
+      - name: Check build recipes
+        run: just check
+
+      - name: Build image natively
+        run: sudo -E "$(command -v just)" build braunicore ci
+
+      - name: Rechunk for bootc/rpm-ostree updates
+        run: sudo -E "$(command -v just)" ostree-rechunk braunicore ci
+
+      - name: Validate bootc, packages, policy, and Quadlet
         run: |
-          just check
+          sudo podman run --rm --entrypoint /bin/bash braunicore:ci -lc '
+            set -euo pipefail
+            bootc container lint
+            test -x /usr/bin/fish
+            rpm -q fish tmux tailscale podman moby-engine bootc rpm-ostree
+            systemctl cat podman.socket >/dev/null
+            systemctl cat rpm-ostreed-automatic.timer >/dev/null
+            test "$(jq -r '\''.transports.docker["ghcr.io/herobrauni/braunicore"][0].type'\'' /etc/containers/policy.json)" = sigstoreSigned
+            jq -e '\''.transports.docker["ghcr.io/ublue-os"]'\'' /etc/containers/policy.json >/dev/null
+            generator_dir=$(mktemp -d)
+            mkdir -p "${generator_dir}/early" "${generator_dir}/late"
+            QUADLET_UNIT_DIRS=/usr/share/containers/systemd \
+              /usr/lib/systemd/system-generators/podman-system-generator \
+              "${generator_dir}" "${generator_dir}/early" "${generator_dir}/late"
+            test -f "${generator_dir}/beszel-agent.service"
+            systemd-analyze verify "${generator_dir}/beszel-agent.service"
+            grep -F "ConditionPathExists=/etc/beszel-agent.env" "${generator_dir}/beszel-agent.service"
+            grep -F "/run/podman/podman.sock:/var/run/docker.sock:ro" "${generator_dir}/beszel-agent.service"
+          '
 
-      - name: Image Name
-        id: image-name
-        run: |
-          IMAGE_NAME=$(just image_name)
-
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
-
-      - name: Default Tag
-        id: gen-default-tag
-        run: |
-          DEFAULT_TAG=$(just generate-default-tag)
-
-          echo "DEFAULT_TAG=${DEFAULT_TAG}" >> $GITHUB_ENV
-
-      - name: Prepare environment
-        run: |
-          # Lowercase the image uri https://github.com/macbre/push-to-ghcr/issues/12
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
-
-      # This actually builds the container image
-      - name: Build Image
-        id: build-image
-        run: |
-          sudo -E $(command -v just) build \
-            ${IMAGE_NAME} \
-            ${DEFAULT_TAG}
-
-      # This is optional, this provides smaller delta updates
-      - name: Rechunk with rpm-ostree
-        id: rechunk
-        run: |
-          sudo -E $(command -v just) ostree-rechunk \
-            ${IMAGE_NAME} \
-            ${DEFAULT_TAG}
-
-      # If you are feeling adventurous, use the new distro agnostic rechunker
-      # https://github.com/coreos/chunkah
-      # You can delete the Rechunk with rpm-ostree portion then if you use this
-      #- name: Rechunk with Chunkah
-      #  id: rechunk
-      #  run: |
-      #    sudo -E $(command -v just) rechunk \
-      #      ${IMAGE_NAME} \
-      #      ${DEFAULT_TAG}
-
-      - name: Generate Build Tags
-        id: gen-build-tags
-        run: |
-          alias_tags="$(just generate-build-tags \
-                        ${IMAGE_NAME} \
-                        ${DEFAULT_TAG})"
-
-          echo "Tags for this Action..."
-          echo "${alias_tags}"
-          echo "alias_tags=${alias_tags}" >> $GITHUB_OUTPUT
-
-      - name: Tag Image
-        id: tag-images
-        env:
-          ALIAS_TAGS: ${{ steps.gen-build-tags.outputs.alias_tags }}
-        run: |
-          sudo -E $(command -v just) tag-images \
-            "${IMAGE_NAME}" \
-            "${DEFAULT_TAG}" \
-            "${ALIAS_TAGS}"
-
-      # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
-      # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
-      - name: Login to GitHub Container Registry
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push To GHCR
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        id: push-image
+      - name: Install Cosign
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Publish and sign architecture candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
-          ALIAS_TAGS: ${{ steps.gen-build-tags.outputs.alias_tags }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
-          set -euox pipefail
-          for tag in ${ALIAS_TAGS}; do
-            sudo -E podman push --digestfile=/tmp/digestfile ${IMAGE_NAME}:${tag} ${IMAGE_REGISTRY}/${IMAGE_NAME}:${tag}
-          done
+          set -euo pipefail
+          candidate="${IMAGE}:${GITHUB_SHA}-${{ matrix.arch }}"
+          sudo -E podman push --digestfile=/tmp/digest braunicore:ci "${candidate}"
+          digest=$(</tmp/digest)
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${digest}"
+          cosign verify --key cosign.pub "${IMAGE}@${digest}"
 
-          digest=$(< /tmp/digestfile)
+  ci:
+    name: CI
+    if: always()
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every native build
+        env:
+          RESULT: ${{ needs.build.result }}
+        run: test "${RESULT}" = success
 
-          echo "digest=${digest}" >> $GITHUB_OUTPUT
+  publish:
+    name: Publish signed multi-architecture image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, ci]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
 
-      # This section is optional and only needs to be enabled if you plan on distributing
-      # your project for others to consume. You will need to create a public and private key
-      # using Cosign and save the private key as a repository secret in Github for this workflow
-      # to consume. For more details, review the image signing section of the README.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         with:
-          # be careful when upgrading major versions
-          cosign-release: 'v3.1.2'
+          cosign-release: ${{ env.COSIGN_VERSION }}
 
-      - name: Sign container image
-        id: sign-image
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      - name: Create, sign, and verify immutable release index
+        id: release
         env:
-          COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          DIGEST: ${{ steps.push-image.outputs.digest }}
+          COSIGN_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
-          # https://github.com/containers/container-libs/issues/388
-          # https://github.com/coreos/rpm-ostree/issues/5509
-          # use old bundle format, so we can use newer cosign 3.X.X instead of 2.X.X
-          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${GITHUB_SHA}" \
+            "${IMAGE}:${GITHUB_SHA}-amd64" \
+            "${IMAGE}:${GITHUB_SHA}-arm64"
+          index_digest=$(docker buildx imagetools inspect "${IMAGE}:${GITHUB_SHA}" | awk '/^Digest:/ {print $2; exit}')
+          test -n "${index_digest}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            --key env://COSIGN_PRIVATE_KEY "${IMAGE}@${index_digest}"
+          cosign verify --key cosign.pub "${IMAGE}@${index_digest}"
+          echo "digest=${index_digest}" >> "${GITHUB_OUTPUT}"
 
+      - name: Verify containers/image signature enforcement
+        env:
+          INDEX_DIGEST: ${{ steps.release.outputs.digest }}
+        run: |
+          set -euo pipefail
+          key_path="${GITHUB_WORKSPACE}/cosign.pub"
+          jq -n --arg key "${key_path}" '{
+            default: [{type: "reject"}],
+            transports: {docker: {
+              "ghcr.io/herobrauni/braunicore": [{
+                type: "sigstoreSigned",
+                keyPath: $key,
+                signedIdentity: {type: "matchRepository"}
+              }]
+            }}
+          }' >/tmp/braunicore-policy.json
+          skopeo --policy /tmp/braunicore-policy.json copy \
+            "docker://${IMAGE}@${INDEX_DIGEST}" dir:/tmp/verified-image
+
+      # stable is moved only after both images, the index signature, Cosign
+      # verification, and containers/image policy verification have succeeded.
+      - name: Publish dated and stable tags atomically
+        env:
+          INDEX_DIGEST: ${{ steps.release.outputs.digest }}
+        run: |
+          set -euo pipefail
+          date_tag=$(date -u +%Y%m%d)
+          docker buildx imagetools create --tag "${IMAGE}:${date_tag}" "${IMAGE}@${INDEX_DIGEST}"
+          test "$(docker buildx imagetools inspect "${IMAGE}:${date_tag}" | awk '/^Digest:/ {print $2; exit}')" = "${INDEX_DIGEST}"
+          docker buildx imagetools create --tag "${IMAGE}:stable" "${IMAGE}@${INDEX_DIGEST}"

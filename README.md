@@ -1,318 +1,188 @@
-# image-template
+# braunicore
 
-This repository is meant to be a template for building your own custom [bootc](https://github.com/bootc-dev/bootc) image. This template is the recommended way to make customizations to any image published by the Universal Blue Project.
+`ghcr.io/herobrauni/braunicore:stable` is a thin, signed derivative of
+[`ucore-minimal:stable`](https://github.com/ublue-os/ucore). It adds one host
+package (`fish`), one secret-free Beszel Quadlet, and the trust scope for this
+repository. It deliberately inherits uCore's kernel, boot setup, container
+runtimes, signing policy, services, and automatic update configuration.
 
-# Community
+The repository started from the current
+[`ublue-os/image-template`](https://github.com/ublue-os/image-template); it does
+not copy or fork the uCore build system.
 
-If you have questions about this template after following the instructions, try the following spaces:
-- [Universal Blue Forums](https://universal-blue.discourse.group/)
-- [Universal Blue Discord](https://discord.gg/WEu6BdFEtp)
-- [bootc discussion forums](https://github.com/bootc-dev/bootc/discussions) - This is not an Universal Blue managed space, but is an excellent resource if you run into issues with building bootc images.
+## Update and release architecture
 
-# How to Use
+Renovate watches the digest-pinned uCore base, the version-and-digest-pinned
+Beszel agent, GitHub Actions, and Cosign. A dependency pull request must pass
+native amd64 and arm64 builds, `bootc container lint`, package assertions,
+containers/image policy checks, and Quadlet/systemd validation.
 
-To get started on your first bootc image, simply read and follow the steps in the next few headings.
-If you prefer instructions in video form, TesterTech created an excellent tutorial, embedded below.
+On `main`, each architecture is rechunked, pushed to a commit-specific staging
+tag, signed, and verified. CI then creates and signs the multi-architecture
+commit tag. Only after containers/image successfully enforces that signature
+does CI atomically point the UTC `YYYYMMDD` tag and finally `stable` at the same
+digest. A failed build or signature therefore cannot replace the working
+`stable` image. Commit and dated tags retain previous releases for diagnosis
+and rollback.
 
-[![Video Tutorial](https://img.youtube.com/vi/IxBl11Zmq5w/0.jpg)](https://www.youtube.com/watch?v=IxBl11Zmq5wE)
+## Host packages
 
-## Step 0: Prerequisites
+Edit [`build_files/packages.txt`](build_files/packages.txt), one Fedora package
+per line. Adding or removing an RPM is a one-line change. The build uses `dnf5`;
+hosts do not use runtime `rpm-ostree install` layering.
 
-These steps assume you have the following:
-- A Github Account
-- A machine running a bootc image (e.g. Bazzite, Bluefin, Aurora, or Fedora Atomic)
-- Experience installing and using CLI programs
+The current uCore base was inspected before this image was created. It already
+contains tmux, Tailscale, Podman, Moby/Docker, Docker Buildx/Compose, bootc, and
+rpm-ostree, so none is reinstalled. CI continues to assert those critical
+packages are present.
 
-## Step 1: Preparing the Template
+## Beszel
 
-### Step 1a: Copying the Template
+The system Quadlet runs the official
+[`henrygd/beszel-agent`](https://www.beszel.dev/guide/agent-installation) image
+with host networking, as recommended for host network statistics. Its tag and
+multi-architecture digest are pinned in
+[`beszel-agent.container`](system_files/usr/share/containers/systemd/beszel-agent.container)
+and updated by Renovate. Data persists at `/var/lib/beszel-agent`.
 
-Select `Use this Template` on this page. You can set the name and description of your repository to whatever you would like, but all other settings should be left untouched.
+The unit has `ConditionPathExists=/etc/beszel-agent.env`; an unconfigured host
+boots normally and does not enter a restart loop. Create the file with exactly
+these per-host values from the Beszel Hub:
 
-Once you have finished copying the template, you need to enable the Github Actions workflows for your new repository.
-To enable the workflows, go to the `Actions` tab of the new repository and click the button to enable workflows.
+```dotenv
+KEY="ssh-ed25519 AAAA..."
+TOKEN="..."
+HUB_URL="https://beszel.example.com"
+```
 
-### Step 1b: Cloning the New Repository
-
-Here I will defer to the much superior GitHub documentation on the matter. You can use whichever method is easiest.
-[GitHub Documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository)
-
-Once you have the repository on your local drive, proceed to the next step.
-
-## Step 2: Initial Setup
-
-### Step 2a: Creating a Cosign Key
-
-Container signing is important for end-user security and is enabled on all Universal Blue images. By default the image builds *will fail* if you don't.
-
-First, install the [cosign CLI tool](https://edu.chainguard.dev/open-source/sigstore/cosign/how-to-install-cosign/#installing-cosign-with-the-cosign-binary)
-With the cosign tool installed, run inside your repo folder:
+`KEY`, `TOKEN`, and `HUB_URL` are the current required agent variables. The
+image supplies `LISTEN=45876` and `DATA_DIR=/var/lib/beszel-agent`. If the Hub
+only uses the outbound WebSocket connection, add `DISABLE_SSH=true` to avoid an
+incoming SSH listener. Install the file as `root:root` mode `0600`, then run:
 
 ```bash
-COSIGN_PASSWORD="" cosign generate-key-pair
+sudo systemctl daemon-reload
+sudo systemctl start beszel-agent.service
+sudo systemctl status beszel-agent.service
 ```
 
-The signing key will be used in GitHub Actions and will not work if it is password protected.
+uCore's rootful Podman socket is present at `/run/podman/podman.sock`; the
+Quadlet activates it and mounts it at `/var/run/docker.sock`, where Beszel's
+Docker-compatible monitor expects it. Podman's API is Docker-compatible, but
+socket access is effectively root-equivalent even with a read-only bind mount.
+The Quadlet follows Podman's required SELinux handling for socket access. Use a
+filtering socket proxy in Ansible if that risk is unacceptable.
 
-> [!WARNING]
-> Be careful to *never* accidentally commit `cosign.key` into your git repo. If this key goes out to the public, the security of your repository is compromised.
+Podman automatic container updates are intentionally not enabled. A digest pin
+cannot float, and the controlled update path is Renovate PR → native CI → signed
+braunicore OS update. This also avoids an agent changing independently of the
+host image.
 
-Next, you need to add the key to GitHub. This makes use of GitHub's secret signing system.
+## Fish users
 
-<details>
-    <summary>Using the Github Web Interface (preferred)</summary>
+The image guarantees `/usr/bin/fish` but does not create users or edit a
+machine's passwd database. A current Fedora CoreOS Butane snippet is:
 
-Go to your repository settings, under `Secrets and Variables` -> `Actions`
-![image](https://user-images.githubusercontent.com/1264109/216735595-0ecf1b66-b9ee-439e-87d7-c8cc43c2110a.png)
-Add a new secret and name it `SIGNING_SECRET`, then paste the contents of `cosign.key` into the secret and save it. Make sure it's the .key file and not the .pub file. Once done, it should look like this:
-![image](https://user-images.githubusercontent.com/1264109/216735690-2d19271f-cee2-45ac-a039-23e6a4c16b34.png)
-</details>
-<details>
-<summary>Using the Github CLI</summary>
+```yaml
+variant: fcos
+version: 1.7.0
+passwd:
+  users:
+    - name: example
+      shell: /usr/bin/fish
+```
 
-If you have the `github-cli` installed, run:
+For an existing host, verify the binary before changing the account:
+
+```yaml
+- name: Check that Fish is in the deployed image
+  ansible.builtin.stat:
+    path: /usr/bin/fish
+  register: fish_binary
+
+- name: Use Fish as the login shell
+  ansible.builtin.user:
+    name: "{{ fleet_user }}"
+    shell: /usr/bin/fish
+  when: fish_binary.stat.exists and fish_binary.stat.executable
+```
+
+## Build and test locally
+
+Podman and `just` follow the upstream template workflow:
 
 ```bash
-gh secret set SIGNING_SECRET < cosign.key
+just build braunicore dev
+sudo just ostree-rechunk braunicore dev
+sudo podman run --rm --entrypoint /bin/bash braunicore:dev -lc \
+  'bootc container lint && test -x /usr/bin/fish && rpm -q fish tmux tailscale podman moby-engine'
 ```
-</details>
 
-### Step 2b: Choosing Your Base Image
-
-To choose a base image, simply modify the line in the container file starting with `FROM`. This will be the image your image derives from, and is your starting point for modifications.
-For a base image, you can choose any of the Universal Blue images or start from a Fedora Atomic system. Below this paragraph is a dropdown with a non-exhaustive list of potential base images.
-
-<details>
-    <summary>Base Images</summary>
-
-- Bazzite: `ghcr.io/ublue-os/bazzite:stable`
-- Aurora: `ghcr.io/ublue-os/aurora:stable`
-- Bluefin: `ghcr.io/ublue-os/bluefin:stable`
-- Universal Blue Base: `ghcr.io/ublue-os/base-main:latest`
-- Fedora: `quay.io/fedora/fedora-bootc:44`
-
-You can find more Universal Blue images on the [packages page](https://github.com/orgs/ublue-os/packages).
-</details>
-
-If you don't know which image to pick, choosing the one your system is currently on is the best bet for a smooth transition. To find out what image your system currently uses, run the following command:
-```bash
-sudo bootc status
-```
-This will show you all the info you need to know about your current image. The image you are currently on is displayed after `Booted image:`. Paste that information after the `FROM` statement in the Containerfile to set it as your base image.
-
-### Step 2c: Changing Names
-
-Change the `IMAGE_NAME` and `REPO_ORGANIZATION` variable inside the `image-template.env`
-
-To commit and push all the files changed and added in step 2 into your Github repository:
-```bash
-git add Containerfile image-template.env cosign.pub
-git commit -m "Initial Setup"
-git push
-```
-Once pushed, go look at the Actions tab on your Github repository's page.  The green checkmark should be showing on the top commit, which means your new image is ready!
-
-## Step 3: Switch to Your Image
-
-From your bootc system, run the following command substituting in your Github username and image name where noted.
-```bash
-sudo bootc switch ghcr.io/<username>/<image_name>
-```
-This should queue your image for the next reboot, which you can do immediately after the command finishes. You have officially set up your custom image! See the following section for an explanation of the important parts of the template for customization.
-
-# Repository Contents
-
-## Containerfile
-
-The [Containerfile](./Containerfile) defines the operations used to customize the selected image.This file is the entrypoint for your image build, and works exactly like a regular podman Containerfile. For reference, please see the [Podman Documentation](https://docs.podman.io/en/latest/Introduction.html).
-
-## build.sh
-
-The [build.sh](./build_files/build.sh) file is called from your Containerfile. It is the best place to install new packages or make any other customization to your system. There are customization examples contained within it for your perusal.
-
-## build.yml
-
-The [build.yml](./.github/workflows/build.yml) Github Actions workflow creates your custom OCI image and publishes it to the Github Container Registry (GHCR). By default, the image name will match the Github repository name.
-
-# Building Disk Images
-
-This template provides an out of the box workflow for creating disk images (ISO, qcow, raw) for your custom OCI image which can be used to directly install onto your machines.
-
-This template provides a way to upload the disk images that is generated from the workflow to a S3 bucket. The disk images will also be available as an artifact from the job, if you wish to use an alternate provider. To upload to S3 we use [rclone](https://rclone.org/) which is able to use [many S3 providers](https://rclone.org/s3/).
-
-## Setting Up ISO Builds
-
-The [build-disk.yml](./.github/workflows/build-disk.yml) Github Actions workflow creates a disk image from your OCI image by utilizing the [bootc-image-builder](https://osbuild.org/docs/bootc/). In order to use this workflow you must complete the following steps:
-
-1. Modify `disk_config/iso.toml` to point to your custom container image before generating an ISO image.
-2. If you changed your image name from the default in `build.yml` then in the `build-disk.yml` file edit the `IMAGE_REGISTRY`, `IMAGE_NAME` and `DEFAULT_TAG` environment variables with the correct values. If you did not make changes, skip this step.
-3. Finally, if you want to upload your disk images to S3 then you will need to add your S3 configuration to the repository's Action secrets. This can be found by going to your repository settings, under `Secrets and Variables` -> `Actions`. You will need to add the following
-  - `S3_PROVIDER` - Must match one of the values from the [supported list](https://rclone.org/s3/)
-  - `S3_BUCKET_NAME` - Your unique bucket name
-  - `S3_ACCESS_KEY_ID` - It is recommended that you make a separate key just for this workflow
-  - `S3_SECRET_ACCESS_KEY` - See above.
-  - `S3_REGION` - The region your bucket lives in. If you do not know then set this value to `auto`.
-  - `S3_ENDPOINT` - This value will be specific to the bucket as well.
-
-Once the workflow is done, you'll find the disk images either in your S3 bucket or as part of the summary under `Artifacts` after the workflow is completed.
-
-# Artifacthub
-
-This template comes with the necessary tooling to index your image on [artifacthub.io](https://artifacthub.io). Use the `artifacthub-repo.yml` file at the root to verify yourself as the publisher. This is important to you for a few reasons:
-
-- The value of artifacthub is it's one place for people to index their custom images, and since we depend on each other to learn, it helps grow the community. 
-- You get to see your pet project listed with the other cool projects in Cloud Native.
-- Since the site puts your README front and center, it's a good way to learn how to write a good README, learn some marketing, finding your audience, etc. 
-
-[Discussion Thread](https://universal-blue.discourse.group/t/listing-your-custom-image-on-artifacthub/6446)
-
-# Justfile Documentation
-
-The `Justfile` contains various commands and configurations for building and managing container images and virtual machine images using Podman and other utilities. It is also used inside Github Actions.
-
-## Required Utilities
-
-Container build:
-- [just](https://just.systems/man/en/introduction.html)
-- [podman](https://docs.podman.io/en/latest)
-- [jq](https://jqlang.org)
-
-These are usually preinstalled on Universal Blue's Bootc Images.
-
-Linting:
-- shfmt
-- shellcheck
-
-## Environment Variables
-
-These are all sourced from the `image-template.env` file.
-
-- `image_name`: The name of the image (default: "image-template").
-- `default_tag`: The default tag for the image (default: "latest").
-- `bib_image`: The Bootc Image Builder (BIB) image (default: "quay.io/centos-bootc/bootc-image-builder:latest").
-
-## Building The Image
-
-All these recipes will work (with default values) without supplying any arguments to them, e.g. `just build`
-
-### `just build`
-
-Builds a container image using Podman.
+Docker BuildKit can perform a quick non-rechunked development build:
 
 ```bash
-just build $target_image $tag
+docker build --pull -f Containerfile -t braunicore:dev .
+docker run --rm --entrypoint /bin/bash braunicore:dev -lc \
+  'bootc container lint && test -x /usr/bin/fish'
 ```
 
-Arguments:
-- `$target_image`: The tag you want to apply to the image (default: `$image_name`).
-- `$tag`: The tag for the image (default: `$default_tag`).
+CI additionally runs the Podman system generator and `systemd-analyze verify`
+against the generated Beszel service.
 
-### Rechunking
-We can flatten the layers of container images to make sure there isn't a single huge layer when your image gets published.
-This does not make your image faster to download, just provides better resumability.
+## Signing and recovery
 
-#### `just ostree-rechunk`
-Rechunks the existing Image with [rpm-ostree](https://coreos.github.io/rpm-ostree/build-chunked-oci/)
+Every architecture manifest and multi-architecture index is signed with the
+dedicated public key in [`cosign.pub`](cosign.pub). Its SHA-256 is:
 
-```bash
-just ostree-rechunk $target_image $tag
+```text
+873b12b4337d06414daeeab6032b088ee7769280fbd641f2c966647b9797c7da
 ```
 
-#### `just rechunk`
-Rechunks the existing Image with [chunkah](https://github.com/coreos/chunkah), this is probably gonna be the default here at some point, try it out, it's cool.
+The encrypted private key is supplied to Actions as `SIGNING_SECRET`; its
+separate passphrase is `SIGNING_PASSWORD`. Neither belongs in Git, Ignition,
+Ansible inventory, logs, or the image. Keep an offline encrypted recovery copy
+of `cosign.key` and store its passphrase separately (for example, an encrypted
+removable backup in a safe plus a password-manager record). Test recovery by
+signing a disposable registry image, and record key rotation as a reviewed
+policy transition. Losing both GitHub secrets and the recovery copy requires a
+fleet trust-policy migration.
 
-```bash
-just rechunk $target_image $tag
-```
+Cosign 3 is instructed to emit the legacy attachment format currently consumed
+by the containers/image `sigstoreSigned` policy used by bootc/rpm-ostree. The
+build merges only the exact `ghcr.io/herobrauni/braunicore` scope into uCore's
+existing `/etc/containers/policy.json` and preserves all upstream scopes.
 
-### Switching to the locally built image for testing
+## Install, switch, update, and roll back
 
-The image has to be in the containers-storage owned by root, to be able to rebase to it, see the `_rootful_load_image` recipe.
+See [`docs/switching.md`](docs/switching.md) for exact preflight, initial trust
+bootstrap, `bootc switch --enforce-container-sigpolicy`, verification, reboot,
+post-boot, automatic-update, and rollback commands. Do not run the switch fleet
+wide; validate one disposable VPS and retain console access first.
 
-`sudo just build` and `sudo just ostree-rechunk` builds directly as root and allows you to skip the transfer to the root containers-storage.
+The installation architecture remains the official Fedora CoreOS metal raw
+image → Ignition → OCI transition. No per-release braunicore disk image is
+built. [`docs/reinstall.md`](docs/reinstall.md) records the already-available
+opt-in `--ucore-image` setting in the local `herobrauni/reinstall` fork.
 
-You can rebase to all the images that are in your containers-storage:
+## Image, Ignition, and Ansible boundaries
 
-```
-sudo podman image list --filter=label=containers.bootc=1
-```
+- Image: identical fleet-wide RPMs, immutable vendor Quadlets, public trust
+  roots, and secret-free defaults.
+- Ignition: first-boot users, SSH keys, storage/networking, hostname, and the
+  initial FCOS-to-braunicore transition.
+- Ansible: Beszel environment files, Tailscale enrollment, account changes,
+  firewalls, host-specific mounts, and other per-host agents.
 
-See [man bootc switch](https://bootc.dev/bootc/man/bootc-switch.8.html) for more info.
+Tailscale activation/authentication stays in Ansible. PatchMon and similar
+agents remain future Ansible provisioning until they have a clean, secret-free,
+bootc-compatible vendor unit.
 
-```
-sudo bootc switch --transport containers-storage localhost/myimage:latest
-```
+## Failed Renovate updates
 
-and reboot your system!
+Open the dependency PR's `Build and publish` checks and identify whether amd64
+or arm64 failed. Reproduce with `just build`, inspect the `dnf5`, bootc lint, or
+Quadlet error, and leave the PR unmerged until both native jobs pass. Closing a
+bad PR leaves `stable` untouched; Renovate will propose a later update. Never
+resolve a failure by removing the digest pin or signature checks.
 
-## Building and Running Virtual Machines and ISOs
-
-The below commands all build QCOW2 images. To produce or use a different type of image, substitute in the command with that type in the place of `qcow2`. The available types are `qcow2`, `iso`, and `raw`.
-
-### `just build-qcow2`
-
-Builds a QCOW2 virtual machine image.
-
-```bash
-just build-qcow2 $target_image $tag
-```
-
-### `just rebuild-qcow2`
-
-Rebuilds a QCOW2 virtual machine image.
-
-```bash
-just rebuild-vm $target_image $tag
-```
-
-### `just run-vm-qcow2`
-
-Runs a virtual machine from a QCOW2 image.
-
-```bash
-just run-vm-qcow2 $target_image $tag
-```
-
-### `just spawn-vm`
-
-Runs a virtual machine using systemd-vmspawn.
-
-```bash
-just spawn-vm rebuild="0" type="qcow2" ram="6G"
-```
-
-## File Management
-
-### `just check`
-
-Checks the syntax of all `.just` files and the `Justfile`.
-
-### `just fix`
-
-Fixes the syntax of all `.just` files and the `Justfile`.
-
-### `just clean`
-
-Cleans the repository by removing build artifacts.
-
-### `just lint`
-
-Runs shell check on all Bash scripts.
-
-### `just format`
-
-Runs shfmt on all Bash scripts.
-
-## Additional resources
-
-For additional driver support, ublue maintains a set of scripts and container images available at [ublue-akmod](https://github.com/ublue-os/akmods). These images include the necessary scripts to install multiple kernel drivers within the container (Nvidia, OpenRazer, Framework...). The documentation provides guidance on how to properly integrate these drivers into your container image.
-
-## Community Examples
-
-These are images derived from this template (or similar enough to this template). Reference them when building your image!
-
-- [m2Giles' OS](https://github.com/m2giles/m2os)
-- [bOS](https://github.com/bsherman/bos)
-- [Homer](https://github.com/bketelsen/homer/)
-- [Amy OS](https://github.com/astrovm/amyos)
-- [VeneOS](https://github.com/Venefilyn/veneos)
+See [`MAINTENANCE.md`](MAINTENANCE.md) for the short maintenance policy.
