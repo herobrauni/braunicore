@@ -96,7 +96,9 @@ sudo systemctl reboot
 sudo bootc status --booted --format yaml
 rpm-ostree status
 test -x /usr/bin/fish
-rpm -q fish tmux tailscale podman moby-engine bootc rpm-ostree
+command -v wget htop btop rg fd tree ncdu atuin uv chezmoi
+rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi \
+  tmux tailscale podman moby-engine bootc rpm-ostree
 sudo bootc container lint
 systemctl status rpm-ostreed-automatic.timer
 systemctl status beszel-agent.service  # "skipped" is expected until configured

@@ -21,8 +21,10 @@ jq '.transports.docker["ghcr.io/herobrauni/braunicore"] = [{
 install -m 0644 "${policy_tmp}" /etc/containers/policy.json
 
 # Fail the build immediately if our intentionally small contract is broken.
-test -x /usr/bin/fish
-rpm -q fish tmux tailscale podman moby-engine bootc rpm-ostree
+for command in fish wget htop btop rg fd tree ncdu atuin uv chezmoi; do
+    command -v "${command}"
+done
+rpm -q "${packages[@]}" tmux tailscale podman moby-engine bootc rpm-ostree
 test -S /run/podman/podman.sock || systemctl cat podman.socket >/dev/null
 QUADLET_UNIT_DIRS=/usr/share/containers/systemd \
     /usr/lib/systemd/system-generators/podman-system-generator --dryrun >/dev/null
