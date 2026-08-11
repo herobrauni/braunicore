@@ -180,7 +180,9 @@ jobs:
               }]
             }}
           }' >/tmp/braunicore-policy.json
-          skopeo --policy /tmp/braunicore-policy.json copy \
+          skopeo \
+            --registries.d "${GITHUB_WORKSPACE}/system_files/etc/containers/registries.d" \
+            --policy /tmp/braunicore-policy.json copy \
             "docker://${IMAGE}@${INDEX_DIGEST}" dir:/tmp/verified-image
 
       # stable is moved only after both images, the index signature, Cosign
