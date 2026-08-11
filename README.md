@@ -178,6 +178,10 @@ opt-in `--ucore-image` setting in the local `herobrauni/reinstall` fork.
 - Ansible: Beszel environment files, Tailscale enrollment, account changes,
   firewalls, host-specific mounts, and other per-host agents.
 
+The fresh [`ansible/`](ansible/) control project uses the My Idlers API as a
+secret-safe dynamic inventory. It keeps catalog data and the Bearer token out
+of Git and targets active Idlers records separately from inactive ones.
+
 Tailscale activation/authentication stays in Ansible. PatchMon and similar
 agents remain future Ansible provisioning until they have a clean, secret-free,
 bootc-compatible vendor unit.
