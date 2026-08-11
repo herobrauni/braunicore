@@ -1,0 +1,7 @@
+---
+- name: Verify SSH and Python access to active Idlers servers
+  hosts: idlers_active
+  gather_facts: false
+  tasks:
+    - name: Ping host through Ansible
+      ansible.builtin.ping:
