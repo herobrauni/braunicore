@@ -1,3 +1,13 @@
 # Fedora packages layered into every braunicore host. One package per line.
 # Before adding a package, verify it is not already present in ucore-minimal.
 fish
+wget2-wget
+htop
+btop
+ripgrep
+fd-find
+tree
+ncdu
+atuin
+uv
+chezmoi

@@ -65,8 +65,11 @@ jobs:
           sudo podman run --rm --entrypoint /bin/bash braunicore:ci -lc '
             set -euo pipefail
             bootc container lint
-            test -x /usr/bin/fish
-            rpm -q fish tmux tailscale podman moby-engine bootc rpm-ostree
+            for command in fish wget htop btop rg fd tree ncdu atuin uv chezmoi; do
+              command -v "${command}"
+            done
+            rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi \
+              tmux tailscale podman moby-engine bootc rpm-ostree
             systemctl cat podman.socket >/dev/null
             systemctl cat rpm-ostreed-automatic.timer >/dev/null
             test "$(jq -r '\''.transports.docker["ghcr.io/herobrauni/braunicore"][0].type'\'' /etc/containers/policy.json)" = sigstoreSigned

@@ -1,10 +1,11 @@
 # braunicore
 
 `ghcr.io/herobrauni/braunicore:stable` is a thin, signed derivative of
-[`ucore-minimal:stable`](https://github.com/ublue-os/ucore). It adds one host
-package (`fish`), one secret-free Beszel Quadlet, and the trust scope for this
-repository. It deliberately inherits uCore's kernel, boot setup, container
-runtimes, signing policy, services, and automatic update configuration.
+[`ucore-minimal:stable`](https://github.com/ublue-os/ucore). It adds a small set
+of host administration tools, one secret-free Beszel Quadlet, and the trust
+scope for this repository. It deliberately inherits uCore's kernel, boot
+setup, container runtimes, signing policy, services, and automatic update
+configuration.
 
 The repository started from the current
 [`ublue-os/image-template`](https://github.com/ublue-os/image-template); it does
@@ -30,6 +31,10 @@ and rollback.
 Edit [`build_files/packages.txt`](build_files/packages.txt), one Fedora package
 per line. Adding or removing an RPM is a one-line change. The build uses `dnf5`;
 hosts do not use runtime `rpm-ostree install` layering.
+
+The current additions are Fish, Wget2's `wget` compatibility command, htop,
+btop, ripgrep, fd, tree, ncdu, Atuin, uv, and chezmoi. Atuin credentials and
+sync configuration remain per-user secrets managed by Ansible or dotfiles.
 
 The current uCore base was inspected before this image was created. It already
 contains tmux, Tailscale, Podman, Moby/Docker, Docker Buildx/Compose, bootc, and
@@ -115,7 +120,7 @@ Podman and `just` follow the upstream template workflow:
 just build braunicore dev
 sudo just ostree-rechunk braunicore dev
 sudo podman run --rm --entrypoint /bin/bash braunicore:dev -lc \
-  'bootc container lint && test -x /usr/bin/fish && rpm -q fish tmux tailscale podman moby-engine'
+  'bootc container lint && rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi tmux tailscale podman moby-engine'
 ```
 
 Docker BuildKit can perform a quick non-rechunked development build:
@@ -123,7 +128,7 @@ Docker BuildKit can perform a quick non-rechunked development build:
 ```bash
 docker build --pull -f Containerfile -t braunicore:dev .
 docker run --rm --entrypoint /bin/bash braunicore:dev -lc \
-  'bootc container lint && test -x /usr/bin/fish'
+  'bootc container lint && command -v fish wget htop btop rg fd tree ncdu atuin uv chezmoi'
 ```
 
 CI additionally runs the Podman system generator and `systemd-analyze verify`
