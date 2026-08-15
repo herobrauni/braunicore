@@ -55,12 +55,14 @@ boots normally and does not enter a restart loop. Create the file with exactly
 these per-host values from the Beszel Hub:
 
 ```dotenv
-KEY="ssh-ed25519 AAAA..."
-TOKEN="..."
-HUB_URL="https://beszel.example.com"
+KEY=ssh-ed25519 AAAA...
+TOKEN=...
+HUB_URL=https://beszel.example.com
 ```
 
-`KEY`, `TOKEN`, and `HUB_URL` are the current required agent variables. The
+`KEY`, `TOKEN`, and `HUB_URL` are the current required agent variables. Do
+not quote the values: the Quadlet passes this file to Podman's `--env-file`,
+which keeps quote characters in the value, breaking the agent's key parser. The
 image supplies `LISTEN=45876` and `DATA_DIR=/var/lib/beszel-agent`. If the Hub
 only uses the outbound WebSocket connection, add `DISABLE_SSH=true` to avoid an
 incoming SSH listener. Install the file as `root:root` mode `0600`, then run:
