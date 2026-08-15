@@ -55,12 +55,14 @@ boots normally and does not enter a restart loop. Create the file with exactly
 these per-host values from the Beszel Hub:
 
 ```dotenv
-KEY="ssh-ed25519 AAAA..."
-TOKEN="..."
-HUB_URL="https://beszel.example.com"
+KEY=ssh-ed25519 AAAA...
+TOKEN=...
+HUB_URL=https://beszel.example.com
 ```
 
-`KEY`, `TOKEN`, and `HUB_URL` are the current required agent variables. The
+`KEY`, `TOKEN`, and `HUB_URL` are the current required agent variables. Do
+not quote the values: the Quadlet passes this file to Podman's `--env-file`,
+which keeps quote characters in the value, breaking the agent's key parser. The
 image supplies `LISTEN=45876` and `DATA_DIR=/var/lib/beszel-agent`. If the Hub
 only uses the outbound WebSocket connection, add `DISABLE_SSH=true` to avoid an
 incoming SSH listener. Install the file as `root:root` mode `0600`, then run:
@@ -77,6 +79,11 @@ Docker-compatible monitor expects it. Podman's API is Docker-compatible, but
 socket access is effectively root-equivalent even with a read-only bind mount.
 The Quadlet follows Podman's required SELinux handling for socket access. Use a
 filtering socket proxy in Ansible if that risk is unacceptable.
+
+The system D-Bus socket is mounted read-only at the same path inside the
+container, enabling Beszel's systemd service monitoring (status, CPU/memory
+usage, restart counts, and failed-service alerts). This requires systemd 243+
+on the host, which uCore satisfies.
 
 Podman automatic container updates are intentionally not enabled. A digest pin
 cannot float, and the controlled update path is Renovate PR → native CI → signed

@@ -83,6 +83,7 @@ jobs:
             systemd-analyze verify "${generator_dir}/beszel-agent.service"
             grep -F "ConditionPathExists=/etc/beszel-agent.env" "${generator_dir}/beszel-agent.service"
             grep -F "/run/podman/podman.sock:/var/run/docker.sock:ro" "${generator_dir}/beszel-agent.service"
+            grep -F "/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro" "${generator_dir}/beszel-agent.service"
           '
 
       - name: Log in to GHCR
