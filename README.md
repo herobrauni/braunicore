@@ -78,6 +78,11 @@ socket access is effectively root-equivalent even with a read-only bind mount.
 The Quadlet follows Podman's required SELinux handling for socket access. Use a
 filtering socket proxy in Ansible if that risk is unacceptable.
 
+The system D-Bus socket is mounted read-only at the same path inside the
+container, enabling Beszel's systemd service monitoring (status, CPU/memory
+usage, restart counts, and failed-service alerts). This requires systemd 243+
+on the host, which uCore satisfies.
+
 Podman automatic container updates are intentionally not enabled. A digest pin
 cannot float, and the controlled update path is Renovate PR → native CI → signed
 braunicore OS update. This also avoids an agent changing independently of the

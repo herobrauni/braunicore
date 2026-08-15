@@ -15,6 +15,7 @@ Environment=DATA_DIR=/var/lib/beszel-agent
 EnvironmentFile=/etc/beszel-agent.env
 Volume=/var/lib/beszel-agent:/var/lib/beszel-agent:Z
 Volume=/run/podman/podman.sock:/var/run/docker.sock:ro
+Volume=/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
 ReadOnly=true
 SecurityLabelDisable=true
 
