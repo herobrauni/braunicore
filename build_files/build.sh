@@ -12,12 +12,21 @@ fi
 
 # Add only our exact repository scope to uCore's policy. Preserve every
 # upstream transport and trust scope verbatim.
+# The signing RPM stages the hardened policy; /usr/etc is the documented
+# location (ucore#430: recent builds leave a corrupted insecure default at
+# /etc and no longer ship /usr/etc, so fall back to the staged copy).
+policy_src="/usr/etc/containers/policy.json"
+if [[ ! -f "${policy_src}" ]]; then
+    policy_src="/usr/share/ublue-os/signing/usr/etc/containers/policy.json"
+fi
+jq -e '.default[0].type == "reject" and .transports.docker["ghcr.io/ublue-os"]' \
+    "${policy_src}" >/dev/null
 policy_tmp="$(mktemp)"
 jq '.transports.docker["ghcr.io/herobrauni/braunicore"] = [{
         "type": "sigstoreSigned",
         "keyPath": "/etc/pki/containers/braunicore.pub",
         "signedIdentity": {"type": "matchRepository"}
-    }]' /etc/containers/policy.json > "${policy_tmp}"
+    }]' "${policy_src}" > "${policy_tmp}"
 install -m 0644 "${policy_tmp}" /etc/containers/policy.json
 
 # Fail the build immediately if our intentionally small contract is broken.
