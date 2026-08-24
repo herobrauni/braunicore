@@ -96,8 +96,9 @@ sudo systemctl reboot
 sudo bootc status --booted --format yaml
 rpm-ostree status
 test -x /usr/bin/fish
-command -v wget htop btop rg fd tree ncdu atuin uv chezmoi
+command -v wget htop btop rg fd tree ncdu atuin uv chezmoi incus
 rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi \
+  incus incus-agent \
   tmux tailscale podman moby-engine bootc rpm-ostree
 sudo bootc container lint
 systemctl status rpm-ostreed-automatic.timer

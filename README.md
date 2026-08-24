@@ -33,8 +33,16 @@ per line. Adding or removing an RPM is a one-line change. The build uses `dnf5`;
 hosts do not use runtime `rpm-ostree install` layering.
 
 The current additions are Fish, Wget2's `wget` compatibility command, htop,
-btop, ripgrep, fd, tree, ncdu, Atuin, uv, and chezmoi. Atuin credentials and
+btop, ripgrep, fd, tree, ncdu, Atuin, uv, chezmoi, and Incus (from the stock
+Fedora repository, which tracks the COPRs). Atuin credentials and
 sync configuration remain per-user secrets managed by Ansible or dotfiles.
+
+Incus ships without its own SELinux module since Fedora's `incus-6.23`;
+enforcement comes from `container-selinux` contexts already present in uCore,
+which the build asserts. The `incus.service`/`incus.socket` units stay
+disabled by default. Grant API access by adding users to the `incus-admin`
+group (created by sysusers) and enable the daemon with
+`systemctl enable --now incus.service`.
 
 The current uCore base was inspected before this image was created. It already
 contains tmux, Tailscale, Podman, Moby/Docker, Docker Buildx/Compose, bootc, and
@@ -127,7 +135,7 @@ Podman and `just` follow the upstream template workflow:
 just build braunicore dev
 sudo just ostree-rechunk braunicore dev
 sudo podman run --rm --entrypoint /bin/bash braunicore:dev -lc \
-  'bootc container lint && rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi tmux tailscale podman moby-engine'
+  'bootc container lint && rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi incus incus-agent tmux tailscale podman moby-engine'
 ```
 
 Docker BuildKit can perform a quick non-rechunked development build:
@@ -135,7 +143,7 @@ Docker BuildKit can perform a quick non-rechunked development build:
 ```bash
 docker build --pull -f Containerfile -t braunicore:dev .
 docker run --rm --entrypoint /bin/bash braunicore:dev -lc \
-  'bootc container lint && command -v fish wget htop btop rg fd tree ncdu atuin uv chezmoi'
+  'bootc container lint && command -v fish wget htop btop rg fd tree ncdu atuin uv chezmoi incus'
 ```
 
 CI additionally runs the Podman system generator and `systemd-analyze verify`

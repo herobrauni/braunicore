@@ -11,3 +11,5 @@ ncdu
 atuin
 uv
 chezmoi
+incus
+incus-agent
