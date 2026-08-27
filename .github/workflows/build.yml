@@ -216,7 +216,7 @@ jobs:
             "docker://${source_ref}" "docker://${mirror_tag}"
           actual_digest=$(skopeo inspect "docker://${mirror_tag}" | jq -r .Digest)
           test "${actual_digest}" = "${expected_digest}"
-          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+          cosign sign --yes --recursive --new-bundle-format=false --use-signing-config=false \
             --key env://COSIGN_PRIVATE_KEY "${mirror_repo}@${actual_digest}"
           cosign verify --key cosign.pub "${mirror_repo}@${actual_digest}"
           echo "image=${mirror_repo}" >> "${GITHUB_OUTPUT}"
