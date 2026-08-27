@@ -14,23 +14,36 @@ not copy or fork the uCore build system.
 ## Update and release architecture
 
 Renovate watches the digest-pinned uCore base, the version-and-digest-pinned
-Beszel agent, GitHub Actions, and Cosign. A dependency pull request must pass
-native amd64 and arm64 builds, `bootc container lint`, package assertions,
-containers/image policy checks, and Quadlet/systemd validation.
+Beszel agent, GitHub Actions, and Cosign. CI verifies the pinned uCore digest
+with the upstream public key in [`ucore.pub`](ucore.pub) before either native
+build starts. A dependency pull request must then pass native amd64 and arm64
+builds, `bootc container lint`, package assertions, containers/image policy
+checks, and Quadlet/systemd validation.
+
+The pinned uCore key SHA-256 is
+`af78ecfda6eb21c35195af3739341715e9cfc3f2f5911dd9c10b0670547bf6e8`.
+An upstream key rotation requires explicit review of the replacement trust root.
 
 On `main`, each architecture is rechunked, pushed to a commit-specific staging
 tag, signed, and verified. CI then creates and signs the multi-architecture
 commit tag. Only after containers/image successfully enforces that signature
-does CI atomically point the UTC `YYYYMMDD` tag and finally `stable` at the same
-digest. A failed build or signature therefore cannot replace the working
-`stable` image. Commit and dated tags retain previous releases for diagnosis
-and rollback.
+does CI create the immutable UTC `YYYYMMDD-<commit>` tag and finally move
+`stable` to the same digest, verifying both results. A failed build or signature
+therefore cannot replace the working `stable` image. Commit and dated tags
+retain previous releases for diagnosis and rollback.
 
 ## Host packages
 
 Edit [`build_files/packages.txt`](build_files/packages.txt), one Fedora package
 per line. Adding or removing an RPM is a one-line change. The build uses `dnf5`;
 hosts do not use runtime `rpm-ostree install` layering.
+
+Fedora repositories are rolling rather than immutable snapshots, so package
+names alone do not make historical rebuilds bit-for-bit reproducible. Each
+native CI build therefore reports the exact architecture-specific NEVRA delta
+from the signature-verified uCore base in its GitHub Actions summary. Review
+that delta for dependency additions, upgrades, removals, and replacements before
+merging image changes.
 
 The current additions are Fish, Wget2's `wget` compatibility command, htop,
 btop, ripgrep, fd, tree, ncdu, Atuin, uv, chezmoi, and Incus (from the stock
@@ -51,10 +64,16 @@ packages are present.
 
 ## Beszel
 
-The system Quadlet runs the official
+The system Quadlet runs a reviewed mirror of the official
 [`henrygd/beszel-agent`](https://www.beszel.dev/guide/agent-installation) image
-with host networking, as recommended for host network statistics. Its tag and
-multi-architecture digest are pinned in
+with host networking, as recommended for host network statistics. Upstream
+publishes BuildKit provenance and an SBOM but no verifiable image signature, so
+Beszel updates never automerge. After a reviewed update reaches `main`, release
+CI copies the exact multi-architecture digest to `ghcr.io/herobrauni`, signs it
+with the Braunicore key, and verifies containers/image enforcement before the
+OS release can advance. The mirror uses a dedicated `beszel-*` tag in the
+already-public Braunicore repository, and hosts reject it when unsigned. The
+tag and digest are pinned in
 [`beszel-agent.container`](system_files/usr/share/containers/systemd/beszel-agent.container)
 and updated by Renovate. Data persists at `/var/lib/beszel-agent`.
 

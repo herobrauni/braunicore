@@ -58,6 +58,18 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Verify pinned uCore base signature
+        run: |
+          set -euo pipefail
+          base_image=$(awk '/^FROM ghcr.io\/ublue-os\/ucore-minimal:/{print $2; exit}' Containerfile)
+          test -n "${base_image}"
+          cosign verify --key ucore.pub "${base_image}"
+
       - name: Check build recipes
         run: just check
 
@@ -90,9 +102,43 @@ jobs:
             test -f "${generator_dir}/beszel-agent.service"
             systemd-analyze verify "${generator_dir}/beszel-agent.service"
             grep -F "ConditionPathExists=/etc/beszel-agent.env" "${generator_dir}/beszel-agent.service"
+            grep -F "ghcr.io/herobrauni/braunicore:beszel-" "${generator_dir}/beszel-agent.service"
+            grep -F "@sha256:" "${generator_dir}/beszel-agent.service"
             grep -F "/run/podman/podman.sock:/var/run/docker.sock:ro" "${generator_dir}/beszel-agent.service"
             grep -F "/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro" "${generator_dir}/beszel-agent.service"
           '
+
+      - name: Report exact RPM delta
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          base_image=$(awk '/^FROM ghcr.io\/ublue-os\/ucore-minimal:/{print $2; exit}' Containerfile)
+          rpm_query='%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n'
+          sudo podman run --rm --entrypoint /usr/bin/rpm "${base_image}" \
+            -qa --qf "${rpm_query}" | LC_ALL=C sort -u >/tmp/base-rpms
+          sudo podman run --rm --entrypoint /usr/bin/rpm braunicore:ci \
+            -qa --qf "${rpm_query}" | LC_ALL=C sort -u >/tmp/braunicore-rpms
+          comm -13 /tmp/base-rpms /tmp/braunicore-rpms >/tmp/rpms-added
+          comm -23 /tmp/base-rpms /tmp/braunicore-rpms >/tmp/rpms-removed
+
+          {
+            printf '### RPM delta (%s)\n\n' "${ARCH}"
+            printf "Exact changes from signed base \`%s\`:\n\n" "${base_image}"
+            printf "#### Added or updated\n\n\`\`\`text\n"
+            if [[ -s /tmp/rpms-added ]]; then
+              awk '{print}' /tmp/rpms-added
+            else
+              printf '(none)\n'
+            fi
+            printf "\`\`\`\n\n#### Removed or replaced\n\n\`\`\`text\n"
+            if [[ -s /tmp/rpms-removed ]]; then
+              awk '{print}' /tmp/rpms-removed
+            else
+              printf '(none)\n'
+            fi
+            printf "\`\`\`\n"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -101,12 +147,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Cosign
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: ${{ env.COSIGN_VERSION }}
 
       - name: Publish and sign architecture candidate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -158,6 +198,30 @@ jobs:
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
+      - name: Mirror and sign reviewed Beszel agent
+        id: beszel
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mirror_ref=$(awk -F= '/^Image=/{print $2}' system_files/usr/share/containers/systemd/beszel-agent.container)
+          mirror_tag=${mirror_ref%@*}
+          mirror_repo=${mirror_tag%:*}
+          expected_digest=${mirror_ref##*@}
+          test "${mirror_repo}" = "ghcr.io/herobrauni/braunicore"
+          source_ref="docker.io/henrygd/beszel-agent@${expected_digest}"
+
+          skopeo copy --all --preserve-digests \
+            "docker://${source_ref}" "docker://${mirror_tag}"
+          actual_digest=$(skopeo inspect "docker://${mirror_tag}" | jq -r .Digest)
+          test "${actual_digest}" = "${expected_digest}"
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+            --key env://COSIGN_PRIVATE_KEY "${mirror_repo}@${actual_digest}"
+          cosign verify --key cosign.pub "${mirror_repo}@${actual_digest}"
+          echo "image=${mirror_repo}" >> "${GITHUB_OUTPUT}"
+          echo "digest=${actual_digest}" >> "${GITHUB_OUTPUT}"
+
       - name: Create, sign, and verify immutable release index
         id: release
         env:
@@ -178,6 +242,8 @@ jobs:
 
       - name: Verify containers/image signature enforcement
         env:
+          BESZEL_DIGEST: ${{ steps.beszel.outputs.digest }}
+          BESZEL_IMAGE: ${{ steps.beszel.outputs.image }}
           INDEX_DIGEST: ${{ steps.release.outputs.digest }}
         run: |
           set -euo pipefail
@@ -196,15 +262,20 @@ jobs:
             --registries.d "${GITHUB_WORKSPACE}/system_files/etc/containers/registries.d" \
             --policy /tmp/braunicore-policy.json copy \
             "docker://${IMAGE}@${INDEX_DIGEST}" dir:/tmp/verified-image
+          skopeo \
+            --registries.d "${GITHUB_WORKSPACE}/system_files/etc/containers/registries.d" \
+            --policy /tmp/braunicore-policy.json copy \
+            "docker://${BESZEL_IMAGE}@${BESZEL_DIGEST}" dir:/tmp/verified-beszel
 
       # stable is moved only after both images, the index signature, Cosign
       # verification, and containers/image policy verification have succeeded.
-      - name: Publish dated and stable tags atomically
+      - name: Publish immutable dated tag and stable
         env:
           INDEX_DIGEST: ${{ steps.release.outputs.digest }}
         run: |
           set -euo pipefail
-          date_tag=$(date -u +%Y%m%d)
+          date_tag="$(date -u +%Y%m%d)-${GITHUB_SHA:0:12}"
           docker buildx imagetools create --tag "${IMAGE}:${date_tag}" "${IMAGE}@${INDEX_DIGEST}"
           test "$(docker buildx imagetools inspect "${IMAGE}:${date_tag}" | awk '/^Digest:/ {print $2; exit}')" = "${INDEX_DIGEST}"
           docker buildx imagetools create --tag "${IMAGE}:stable" "${IMAGE}@${INDEX_DIGEST}"
+          test "$(docker buildx imagetools inspect "${IMAGE}:stable" | awk '/^Digest:/ {print $2; exit}')" = "${INDEX_DIGEST}"

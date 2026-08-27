@@ -6,6 +6,7 @@
   "pinDigests": true,
   "platformAutomerge": true,
   "rebaseWhen": "behind-base-branch",
+  "ignoreDeps": ["ghcr.io/herobrauni/braunicore"],
   "customManagers": [
     {
       "customType": "regex",
@@ -14,6 +15,14 @@
       "depNameTemplate": "sigstore/cosign",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^system_files/usr/share/containers/systemd/beszel-agent\\.container$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\nImage=ghcr\\.io/herobrauni/braunicore:beszel-(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "versioningTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -26,13 +35,12 @@
       "automergeType": "pr"
     },
     {
-      "description": "Automerge Beszel digest and patch updates within 0.18",
+      "description": "Unsigned upstream Beszel updates require provenance review",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["docker.io/henrygd/beszel-agent"],
       "matchCurrentVersion": "/^0\\.18\\./",
       "matchUpdateTypes": ["digest", "patch"],
-      "automerge": true,
-      "automergeType": "pr"
+      "automerge": false
     },
     {
       "description": "Automerge tested action digest, patch, and minor updates",
