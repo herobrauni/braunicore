@@ -84,12 +84,25 @@ jobs:
           sudo podman run --rm --entrypoint /bin/bash braunicore:ci -lc '
             set -euo pipefail
             bootc container lint
-            for command in fish wget htop btop rg fd tree ncdu atuin uv chezmoi incus; do
+            for command in fish wget incus nix nix-daemon; do
               command -v "${command}"
             done
-            rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi \
-              incus incus-agent \
+            rpm -q wget2-wget incus incus-agent nix nix-daemon \
               tmux tailscale podman moby-engine bootc rpm-ostree
+            for package in fish htop btop ripgrep fd-find tree ncdu atuin uv chezmoi; do
+              if rpm -q "${package}"; then
+                echo "Braunix-owned package is also installed as an RPM: ${package}" >&2
+                exit 1
+              fi
+            done
+            test "$(readlink -f /usr/bin/fish)" = /usr/libexec/braunicore/fish
+            semodule --list-modules=full | grep -Eq "(^|[[:space:]])braunicore_nix([[:space:]]|$)"
+            systemctl is-enabled nix.mount nix-daemon.socket
+            if systemctl is-enabled --quiet nix-daemon.service; then
+              echo 'nix-daemon.service must use socket activation' >&2
+              exit 1
+            fi
+            systemd-analyze verify nix.mount nix-prepare.service
             systemctl cat podman.socket >/dev/null
             systemctl cat rpm-ostreed-automatic.timer >/dev/null
             test "$(jq -r '\''.transports.docker["ghcr.io/herobrauni/braunicore"][0].type'\'' /etc/containers/policy.json)" = sigstoreSigned

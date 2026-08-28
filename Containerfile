@@ -3,8 +3,17 @@ FROM scratch AS ctx
 COPY build_files /
 COPY system_files /system_files
 
+# Build the small Nix file-context module outside the final image so policy
+# development tools do not become host packages.
+FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:556be9943099064bc4ef19ac5be2e7231536549dcd5c065e456c27296d8388ca AS policy-builder
+RUN dnf install -y selinux-policy-devel && dnf clean all
+COPY build_files/selinux /src
+RUN make -f /usr/share/selinux/devel/Makefile -C /src braunicore_nix.pp
+
 # Renovate updates the stable tag's digest after pull-request CI passes.
 FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:556be9943099064bc4ef19ac5be2e7231536549dcd5c065e456c27296d8388ca
+
+COPY --from=policy-builder /src/braunicore_nix.pp /usr/share/selinux/packages/braunicore_nix.pp
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5 \

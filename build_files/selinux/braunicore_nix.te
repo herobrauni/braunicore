@@ -1,0 +1,6 @@
+policy_module(braunicore_nix, 1.0.0)
+
+gen_require(`
+    type usr_t;
+    type var_run_t;
+')

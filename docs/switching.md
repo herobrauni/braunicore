@@ -96,10 +96,18 @@ sudo systemctl reboot
 sudo bootc status --booted --format yaml
 rpm-ostree status
 test -x /usr/bin/fish
-command -v wget htop btop rg fd tree ncdu atuin uv chezmoi incus
-rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi \
-  incus incus-agent \
+command -v wget incus nix nix-daemon
+rpm -q wget2-wget incus incus-agent nix nix-daemon \
   tmux tailscale podman moby-engine bootc rpm-ostree
+findmnt --mountpoint /nix
+test "$(findmnt -n -o SOURCE /nix)" = /var/lib/nix
+systemctl is-enabled nix.mount nix-daemon.socket
+nix store ping --store daemon
+test "$(matchpathcon -n /var/lib/nix/store)" = \
+  system_u:object_r:usr_t:s0
+for package in fish htop btop ripgrep fd-find tree ncdu atuin uv chezmoi; do
+  ! rpm -q "$package"
+done
 sudo bootc container lint
 systemctl status rpm-ostreed-automatic.timer
 systemctl status beszel-agent.service  # "skipped" is expected until configured
@@ -109,6 +117,10 @@ systemctl status beszel-agent.service  # "skipped" is expected until configured
 `ghcr.io/herobrauni/braunicore:stable`, not the ublue-os base. Once
 `/etc/beszel-agent.env` exists, validate `systemctl status beszel-agent` and
 `sudo podman ps --filter name=beszel-agent`.
+
+After image validation succeeds, activate the user environment with
+Braunsible's `playbooks/braunix.yaml`. The sibling Braunsible repository's
+`docs/braunicore-to-braunix.md` contains the ordered canary procedure.
 
 ## 5. Automatic updates
 
