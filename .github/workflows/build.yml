@@ -99,7 +99,7 @@ jobs:
             semodule --list-modules=full | grep -Eq "(^|[[:space:]])braunicore_nix([[:space:]]|$)"
             systemctl is-enabled nix.mount nix-daemon.socket
             if systemctl is-enabled --quiet nix-daemon.service; then
-              echo 'nix-daemon.service must use socket activation' >&2
+              echo "nix-daemon.service must use socket activation" >&2
               exit 1
             fi
             systemd-analyze verify nix.mount nix-prepare.service
