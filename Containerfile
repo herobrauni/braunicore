@@ -5,13 +5,13 @@ COPY system_files /system_files
 
 # Build the small Nix file-context module outside the final image so policy
 # development tools do not become host packages.
-FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:556be9943099064bc4ef19ac5be2e7231536549dcd5c065e456c27296d8388ca AS policy-builder
+FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:db3dec6aa99ec75f25c8a916807d23d3927fd2b72a7dfefd8eddf08b2d029d71 AS policy-builder
 RUN dnf install -y selinux-policy-devel && dnf clean all
 COPY build_files/selinux /src
 RUN make -f /usr/share/selinux/devel/Makefile -C /src braunicore_nix.pp
 
 # Renovate updates the stable tag's digest after pull-request CI passes.
-FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:556be9943099064bc4ef19ac5be2e7231536549dcd5c065e456c27296d8388ca
+FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:db3dec6aa99ec75f25c8a916807d23d3927fd2b72a7dfefd8eddf08b2d029d71
 
 COPY --from=policy-builder /src/braunicore_nix.pp /usr/share/selinux/packages/braunicore_nix.pp
 
