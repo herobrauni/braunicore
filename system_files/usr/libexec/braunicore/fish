@@ -1,8 +1,0 @@
-#!/bin/bash
-
-# Keep existing /usr/bin/fish passwd entries usable while Braunix owns Fish.
-if [[ -x "${HOME}/.nix-profile/bin/fish" ]]; then
-    exec "${HOME}/.nix-profile/bin/fish" "$@"
-fi
-
-exec /bin/bash "$@"

@@ -46,30 +46,14 @@ that delta for dependency additions, upgrades, removals, and replacements before
 merging image changes.
 
 The current additions are Wget2's `wget` compatibility command, Incus (from
-the stock Fedora repository, which tracks the COPRs), and Fedora's `nix` and
-`nix-daemon` packages. Braunix owns Fish, htop, btop, ripgrep, fd, tree, ncdu,
-Atuin, uv, and chezmoi. The image build fails if any of those user tools is
-also installed as an RPM.
+the stock Fedora repository, which tracks the COPRs), and the user tooling:
+Fish, htop, btop, ripgrep, fd, tree, ncdu, uv, and chezmoi. Atuin is owned by
+Braunsible as a checksum-pinned upstream release binary and is deliberately
+not layered as an RPM; the image build fails if it ever is.
 
-## Nix runtime and SELinux
-
-Braunicore provides multi-user Nix; it does not use the upstream curl
-installer. The Fedora packages provide the Nix CLI, daemon, build users,
-tmpfiles rules, and shell environment. `nix.mount` bind-mounts the persistent
-`/var/lib/nix` directory at the conventional `/nix` path before socket
-activation. The direct daemon service is disabled; `nix-daemon.socket` starts
-it on demand.
-
-The image builds and installs the source-reviewed `braunicore_nix` SELinux
-file-context module. Store objects and profiles use `usr_t`, while the daemon
-socket uses `var_run_t`. `nix-prepare.service` runs `restorecon` before the
-bind mount. New store objects inherit the store's `usr_t` context, so Nix does
-not require permissive mode or an unconfined installer transition.
-
-`/usr/bin/fish` is a small compatibility launcher, not a second Fish
-installation. It executes `$HOME/.nix-profile/bin/fish` after Braunix is
-activated and falls back to `/bin/bash` beforehand. This keeps existing passwd
-entries valid while allowing Braunix to be Fish's only package owner.
+A weekly scheduled rebuild keeps the layered packages current between base
+digest updates; hosts receive the result through their normal
+`bootc upgrade` flow.
 
 Incus ships without its own SELinux module since Fedora's `incus-6.23`;
 enforcement comes from `container-selinux` contexts already present in uCore,
@@ -175,7 +159,7 @@ Podman and `just` follow the upstream template workflow:
 just build braunicore dev
 sudo just ostree-rechunk braunicore dev
 sudo podman run --rm --entrypoint /bin/bash braunicore:dev -lc \
-   'bootc container lint && rpm -q wget2-wget incus incus-agent nix nix-daemon tmux tailscale podman moby-engine'
+   'bootc container lint && rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi incus incus-agent tmux tailscale podman moby-engine'
 ```
 
 Docker BuildKit can perform a quick non-rechunked development build:
@@ -183,7 +167,7 @@ Docker BuildKit can perform a quick non-rechunked development build:
 ```bash
 docker build --pull -f Containerfile -t braunicore:dev .
 docker run --rm --entrypoint /bin/bash braunicore:dev -lc \
-  'bootc container lint && command -v fish wget incus nix nix-daemon'
+  'bootc container lint && command -v fish wget htop btop rg fd tree ncdu atuin uv chezmoi incus'
 ```
 
 CI additionally runs the Podman system generator and `systemd-analyze verify`

@@ -1,8 +1,0 @@
-# Nix store objects need an executable/readable system type. Labeling the
-# complete store also makes newly created outputs inherit a usable context.
-/nix/store(/.*)?                         gen_context(system_u:object_r:usr_t,s0)
-/var/lib/nix/store(/.*)?                 gen_context(system_u:object_r:usr_t,s0)
-/nix/var/nix/profiles(/.*)?              gen_context(system_u:object_r:usr_t,s0)
-/var/lib/nix/var/nix/profiles(/.*)?      gen_context(system_u:object_r:usr_t,s0)
-/nix/var/nix/daemon-socket(/.*)?         gen_context(system_u:object_r:var_run_t,s0)
-/var/lib/nix/var/nix/daemon-socket(/.*)? gen_context(system_u:object_r:var_run_t,s0)

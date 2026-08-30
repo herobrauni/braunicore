@@ -3,20 +3,12 @@
 set -ouex pipefail
 
 cp -avf /ctx/system_files/. /
-chmod 0755 /usr/libexec/braunicore/fish
-ln -s ../libexec/braunicore/fish /usr/bin/fish
 
 # One package per line. Blank lines and comments are ignored.
 mapfile -t packages < <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' /ctx/packages.txt)
 if (( ${#packages[@]} > 0 )); then
     dnf5 install -y "${packages[@]}"
 fi
-
-# The Nix store is mutable host state. Keep it below /var and expose the
-# conventional path through a boot-time bind mount.
-semodule --install /usr/share/selinux/packages/braunicore_nix.pp
-systemctl disable nix-daemon.service
-systemctl enable nix.mount nix-daemon.socket
 
 # Add only our exact repository scope to uCore's policy. Preserve every
 # upstream transport and trust scope verbatim.
@@ -38,26 +30,15 @@ jq '.transports.docker["ghcr.io/herobrauni/braunicore"] = [{
 install -m 0644 "${policy_tmp}" /etc/containers/policy.json
 
 # Fail the build immediately if our intentionally small contract is broken.
-for command in fish wget incus nix nix-daemon; do
+for command in fish wget htop btop rg fd tree ncdu uv chezmoi incus; do
     command -v "${command}"
 done
 rpm -q "${packages[@]}" incus incus-agent tmux tailscale podman moby-engine bootc rpm-ostree
-# Braunix owns user tools. The compatibility Fish launcher is intentionally
-# not the Fedora Fish package.
-for package in fish htop btop ripgrep fd-find tree ncdu atuin uv chezmoi; do
-    if rpm -q "${package}"; then
-        echo "Braunix-owned package is also installed as an RPM: ${package}" >&2
-        exit 1
-    fi
-done
-test "$(readlink -f /usr/bin/fish)" = /usr/libexec/braunicore/fish
-semodule --list-modules=full | grep -Eq '(^|[[:space:]])braunicore_nix([[:space:]]|$)'
-systemctl is-enabled nix.mount nix-daemon.socket
-if systemctl is-enabled --quiet nix-daemon.service; then
-    echo 'nix-daemon.service must use socket activation' >&2
+# Atuin is owned by the Braunsible pinned release role and must not be layered.
+if rpm -q atuin; then
+    echo "Atuin must not be installed as an RPM" >&2
     exit 1
 fi
-systemd-analyze verify nix.mount nix-prepare.service
 # Incus runs under enforcing SELinux via container-selinux contexts; there is
 # no dedicated policy since 6.23. Fail early if a base change drops them.
 test "$(matchpathcon -n /usr/libexec/incus/incusd)" = \
