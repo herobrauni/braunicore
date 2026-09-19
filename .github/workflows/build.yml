@@ -174,7 +174,7 @@ jobs:
     name: CI
     if: always()
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Require every native build
         env:
@@ -185,7 +185,7 @@ jobs:
     name: Publish signed multi-architecture image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [build, ci]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
