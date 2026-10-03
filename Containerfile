@@ -4,7 +4,7 @@ COPY build_files /
 COPY system_files /system_files
 
 # Renovate updates the stable tag's digest after pull-request CI passes.
-FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:75e5a5d02bd7d5583f215d1775e449629f01548925cba748914749bbf1306d49
+FROM ghcr.io/ublue-os/ucore-minimal:stable@sha256:c0fa516d39f4de4d981fdec0751251d7cee0900e0d150a081183347ea0bf4746
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/libdnf5 \
