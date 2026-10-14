@@ -72,13 +72,14 @@ packages are present.
 The system Quadlet runs a reviewed mirror of the official
 [`henrygd/beszel-agent`](https://www.beszel.dev/guide/agent-installation) image
 with host networking, as recommended for host network statistics. Upstream
-publishes BuildKit provenance and an SBOM but no verifiable image signature, so
-Beszel updates never automerge. After a reviewed update reaches `main`, release
-CI copies the exact multi-architecture digest to `ghcr.io/herobrauni`, signs it
-with the Braunicore key, and verifies containers/image enforcement before the
-OS release can advance. The mirror uses a dedicated `beszel-*` tag in the
-already-public Braunicore repository, and hosts reject it when unsigned. The
-tag and digest are pinned in
+publishes BuildKit provenance and an SBOM but no verifiable image signature.
+Renovate proposes updates, and PR CI validates native multi-architecture builds,
+the Quadlet generator, and service definitions before auto-merging tested releases.
+After merge to `main`, release CI copies the exact multi-architecture digest to
+`ghcr.io/herobrauni`, signs it with the Braunicore key, and verifies
+containers/image enforcement before the OS release can advance. The mirror uses
+a dedicated `beszel-*` tag in the already-public Braunicore repository, and hosts
+reject it when unsigned. The tag and digest are pinned in
 [`beszel-agent.container`](system_files/usr/share/containers/systemd/beszel-agent.container)
 and updated by Renovate. Data persists at `/var/lib/beszel-agent`.
 
@@ -158,8 +159,14 @@ Podman and `just` follow the upstream template workflow:
 ```bash
 just build braunicore dev
 sudo just ostree-rechunk braunicore dev
+just validate braunicore dev
+```
+
+Alternatively, validate directly with Podman:
+
+```bash
 sudo podman run --rm --entrypoint /bin/bash braunicore:dev -lc \
-   'bootc container lint && rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu atuin uv chezmoi incus incus-agent tmux tailscale podman moby-engine'
+   'bootc container lint && rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu uv chezmoi incus incus-agent tmux tailscale podman moby-engine bootc rpm-ostree'
 ```
 
 Docker BuildKit can perform a quick non-rechunked development build:
@@ -167,7 +174,7 @@ Docker BuildKit can perform a quick non-rechunked development build:
 ```bash
 docker build --pull -f Containerfile -t braunicore:dev .
 docker run --rm --entrypoint /bin/bash braunicore:dev -lc \
-  'bootc container lint && command -v fish wget htop btop rg fd tree ncdu atuin uv chezmoi incus'
+  'bootc container lint && command -v fish wget htop btop rg fd tree ncdu uv chezmoi incus'
 ```
 
 CI additionally runs the Podman system generator and `systemd-analyze verify`

@@ -28,12 +28,13 @@ jq '.transports.docker["ghcr.io/herobrauni/braunicore"] = [{
         "signedIdentity": {"type": "matchRepository"}
     }]' "${policy_src}" > "${policy_tmp}"
 install -m 0644 "${policy_tmp}" /etc/containers/policy.json
+rm -f "${policy_tmp}"
 
 # Fail the build immediately if our intentionally small contract is broken.
 for command in fish wget htop btop rg fd tree ncdu uv chezmoi incus; do
     command -v "${command}"
 done
-rpm -q "${packages[@]}" incus incus-agent tmux tailscale podman moby-engine bootc rpm-ostree
+rpm -q "${packages[@]}" tmux tailscale podman moby-engine bootc rpm-ostree
 # Atuin is owned by the Braunsible pinned release role and must not be layered.
 if rpm -q atuin; then
     echo "Atuin must not be installed as an RPM" >&2

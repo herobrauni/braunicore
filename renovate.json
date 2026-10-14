@@ -35,12 +35,12 @@
       "automergeType": "pr"
     },
     {
-      "description": "Unsigned upstream Beszel updates require provenance review",
+      "description": "Automerge tested Beszel agent digest, patch, and minor updates",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["docker.io/henrygd/beszel-agent"],
-      "matchCurrentVersion": "/^0\\.18\\./",
-      "matchUpdateTypes": ["digest", "patch"],
-      "automerge": false
+      "matchUpdateTypes": ["digest", "patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr"
     },
     {
       "description": "Automerge tested action digest, patch, and minor updates",

@@ -1,5 +1,5 @@
 set dotenv-filename := "image-template.env"
-set dotenv-load
+set dotenv-load := true
 
 export image_name := env_var("IMAGE_NAME")
 export repo_organization := env_var("REPO_ORGANIZATION")
@@ -45,3 +45,22 @@ ostree-rechunk target_image=image_name tag=default_tag:
       --bootc \
       --from "localhost/{{ target_image }}:{{ tag }}" \
       --output "containers-storage:localhost/{{ target_image }}:{{ tag }}"
+
+# Validate built image contract, packages, and services locally.
+validate target_image=image_name tag=default_tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    podman run --rm --entrypoint /bin/bash "{{ target_image }}:{{ tag }}" -lc '
+      set -euo pipefail
+      bootc container lint
+      for command in fish wget htop btop rg fd tree ncdu uv chezmoi incus; do
+        command -v "${command}"
+      done
+      rpm -q fish wget2-wget htop btop ripgrep fd-find tree ncdu uv chezmoi \
+        incus incus-agent \
+        tmux tailscale podman moby-engine bootc rpm-ostree
+      if rpm -q atuin; then
+        echo "Atuin must not be installed as an RPM" >&2
+        exit 1
+      fi
+    '
