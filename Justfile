@@ -1,5 +1,5 @@
 set dotenv-filename := "image-template.env"
-set dotenv-load := true
+set dotenv-load
 
 export image_name := env_var("IMAGE_NAME")
 export repo_organization := env_var("REPO_ORGANIZATION")
@@ -64,3 +64,7 @@ validate target_image=image_name tag=default_tag:
         exit 1
       fi
     '
+
+# Keep `--fmt --check` meaningful: bumping the pinned just version in
+# .github/workflows/build.yml can change the formatter's output (`set dotenv-load`
+# vs `set dotenv-load := true`), so the pin and any reformatting must land together.
